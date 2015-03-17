@@ -7,10 +7,12 @@
  */
 
 /* More information about these options at jshint.com/docs/options */
-/* global mozRTCIceCandidate, mozRTCPeerConnection,
-mozRTCSessionDescription, webkitRTCPeerConnection */
+/* jshint browser: true, camelcase: true, curly: true, devel: true,
+   eqeqeq: true, forin: false, globalstrict: true, node: true,
+   quotmark: single, undef: true, unused: strict */
+/* global mozRTCIceCandidate, mozRTCPeerConnection, Promise,
+mozRTCSessionDescription, webkitRTCPeerConnection, MediaStreamTrack */
 /* exported trace,requestUserMedia */
-
 'use strict';
 
 var RTCPeerConnection = null;
@@ -43,13 +45,29 @@ if (navigator.mozGetUserMedia) {
 
   // The RTCPeerConnection object.
   RTCPeerConnection = function(pcConfig, pcConstraints) {
-    // .urls is not supported in FF yet.
-    if (pcConfig && pcConfig.iceServers) {
-      for (var i = 0; i < pcConfig.iceServers.length; i++) {
-        if (pcConfig.iceServers[i].hasOwnProperty('urls')) {
-          pcConfig.iceServers[i].url = pcConfig.iceServers[i].urls;
-          delete pcConfig.iceServers[i].urls;
+    if (webrtcDetectedVersion < 38) {
+      // .urls is not supported in FF < 38.
+      // create RTCIceServers with a single url.
+      if (pcConfig && pcConfig.iceServers) {
+        var newIceServers = [];
+        for (var i = 0; i < pcConfig.iceServers.length; i++) {
+          var server = pcConfig.iceServers[i];
+          if (server.hasOwnProperty('urls')) {
+            for (var j = 0; j < server.urls.length; j++) {
+              var newServer = {
+                url: server.urls[j]
+              };
+              if (server.urls[j].indexOf('turn') === 0) {
+                newServer.username = server.username;
+                newServer.credential = server.credential;
+              }
+              newIceServers.push(newServer);
+            }
+          } else {
+            newIceServers.push(pcConfig.iceServers[i]);
+          }
         }
+        pcConfig.iceServers = newIceServers;
       }
     }
     return new mozRTCPeerConnection(pcConfig, pcConstraints);
@@ -77,55 +95,6 @@ if (navigator.mozGetUserMedia) {
     }, 0);
   };
 
-  // Creates ICE server from the URL for FF.
-  window.createIceServer = function(url, username, password) {
-    var iceServer = null;
-    var urlParts = url.split(':');
-    if (urlParts[0].indexOf('stun') === 0) {
-      // Create ICE server with STUN URL.
-      iceServer = {
-        'url': url
-      };
-    } else if (urlParts[0].indexOf('turn') === 0) {
-      if (webrtcDetectedVersion < 27) {
-        // Create iceServer with turn url.
-        // Ignore the transport parameter from TURN url for FF version <=27.
-        var turnUrlParts = url.split('?');
-        // Return null for createIceServer if transport=tcp.
-        if (turnUrlParts.length === 1 ||
-          turnUrlParts[1].indexOf('transport=udp') === 0) {
-          iceServer = {
-            'url': turnUrlParts[0],
-            'credential': password,
-            'username': username
-          };
-        }
-      } else {
-        // FF 27 and above supports transport parameters in TURN url,
-        // So passing in the full url to create iceServer.
-        iceServer = {
-          'url': url,
-          'credential': password,
-          'username': username
-        };
-      }
-    }
-    return iceServer;
-  };
-
-  window.createIceServers = function(urls, username, password) {
-    var iceServers = [];
-    // Use .url for FireFox.
-    for (var i = 0; i < urls.length; i++) {
-      var iceServer =
-        window.createIceServer(urls[i], username, password);
-      if (iceServer !== null) {
-        iceServers.push(iceServer);
-      }
-    }
-    return iceServers;
-  };
-
   // Attach a media stream to an element.
   attachMediaStream = function(element, stream) {
     console.log('Attaching media stream');
@@ -149,35 +118,6 @@ if (navigator.mozGetUserMedia) {
   } else {
     webrtcDetectedVersion = 999;
   }
-
-  // Creates iceServer from the url for Chrome M33 and earlier.
-  window.createIceServer = function(url, username, password) {
-    var iceServer = null;
-    var urlParts = url.split(':');
-    if (urlParts[0].indexOf('stun') === 0) {
-      // Create iceServer with stun url.
-      iceServer = {
-        'url': url
-      };
-    } else if (urlParts[0].indexOf('turn') === 0) {
-      // Chrome M28 & above uses below TURN format.
-      iceServer = {
-        'url': url,
-        'credential': password,
-        'username': username
-      };
-    }
-    return iceServer;
-  };
-
-  // Creates an ICEServer object from multiple URLs.
-  window.createIceServers = function(urls, username, password) {
-    return {
-      'urls': urls,
-      'credential': password,
-      'username': username
-    };
-  };
 
   // The RTCPeerConnection object.
   RTCPeerConnection = function(pcConfig, pcConstraints) {
@@ -225,4 +165,17 @@ function requestUserMedia(constraints) {
       reject(e);
     }
   });
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    RTCPeerConnection: RTCPeerConnection,
+    getUserMedia: getUserMedia,
+    attachMediaStream: attachMediaStream,
+    reattachMediaStream: reattachMediaStream,
+    webrtcDetectedBrowser: webrtcDetectedBrowser,
+    webrtcDetectedVersion: webrtcDetectedVersion
+    //requestUserMedia: not exposed on purpose.
+    //trace: not exposed on purpose.
+  };
 }
