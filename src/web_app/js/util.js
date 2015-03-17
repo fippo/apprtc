@@ -10,7 +10,7 @@
 
 /* exported setUpFullScreen, fullScreenElement, isFullScreen,
    requestTurnServers, sendAsyncUrlRequest, sendSyncUrlRequest, randomString, $,
-   queryStringToDictionary */
+   queryStringToDictionary, stringifyObject */
 /* globals chrome */
 
 'use strict';
@@ -93,11 +93,12 @@ function requestTurnServers(turnRequestUrl, turnTransports) {
       }
 
       // Create the RTCIceServer objects from the response.
-      var turnServers = {
-        urls: turnServerResponse.uris,
-        username: turnServerResponse.username,
-        credential: turnServerResponse.password
-      };
+      var turnServers = createIceServers(turnServerResponse.uris,
+          turnServerResponse.username, turnServerResponse.password);
+      if (!turnServers) {
+        reject(Error('Error creating ICE servers from response.'));
+        return;
+      }
       trace('Retrieved TURN server information.');
       resolve(turnServers);
     }).catch(function(error) {
@@ -115,6 +116,24 @@ function parseJSON(json) {
     trace('Error parsing json: ' + json);
   }
   return null;
+}
+
+// Stringifies an object.  This function stringifies not only own properties
+// but also attributes which are on a prototype chain.  Note that
+// JSON.stringify only stringifies own properties.
+// This is needed to stringify RTCSessionDescription objects for SDP.
+function stringifyObject(object) {
+  function deepCopy(src) {
+    if (typeof src !== 'object') {
+      return src;
+    }
+    var dst = Array.isArray(src) ? [] : {};
+    for (var property in src) {
+      dst[property] = deepCopy(src[property]);
+    }
+    return dst;
+  }
+  return JSON.stringify(deepCopy(object));
 }
 
 // Filter a list of TURN urls to only contain those with transport=|protocol|.
